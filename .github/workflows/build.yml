@@ -3,6 +3,7 @@ name: Build & Test
 on:
   push:
     branches: [ main, master, develop ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -150,11 +151,11 @@ jobs:
           path: artifacts
 
       - name: Download release APK
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: apk-release-${{ github.sha }}
           path: artifacts
-          # release APK が無くても失敗しない（署名未設定時）
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
