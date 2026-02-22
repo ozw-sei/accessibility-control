@@ -268,7 +268,7 @@ fun SettingsCard(
                 )
             }
 
-            HorizontalDivider(color = Color(0xFF2A2A4A))
+            Divider(color = Color(0xFF2A2A4A))
 
             // 許可開始時刻
             Text("許可開始: ${"%02d".format(startHour)}:00", fontSize = 14.sp)
@@ -363,7 +363,7 @@ fun SetupCard(
                 Text("✅ AccessibilityService 有効", fontSize = 14.sp, color = Color(0xFF81C784))
             }
 
-            HorizontalDivider(color = Color(0xFF2A2A4A))
+            Divider(color = Color(0xFF2A2A4A))
 
             // デバッグ: Device Owner 解除
             if (isDeviceOwner) {

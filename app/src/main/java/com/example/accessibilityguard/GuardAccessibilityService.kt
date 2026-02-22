@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 
 /**
@@ -92,7 +93,7 @@ class GuardAccessibilityService : AccessibilityService() {
         // まず windows API からタイトル取得を試みる（API 28+）
         try {
             for (window in windows) {
-                if (window.type == android.accessibilityservice.AccessibilityWindowInfo.TYPE_APPLICATION) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
                     val title = window.title?.toString()
                     if (title != null) return title
                 }
