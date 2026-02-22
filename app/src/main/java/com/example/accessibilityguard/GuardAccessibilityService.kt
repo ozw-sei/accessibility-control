@@ -57,6 +57,23 @@ class GuardAccessibilityService : AccessibilityService() {
         if (SettingsDetector.isBlockedClassName(className) && !conditionChecker.isAllowed()) {
             blockAndGoHome()
             Log.i(TAG, "Blocked window state: $className")
+            return
+        }
+
+        // SubSettings は汎用アクティビティなので、ノードツリーからタイトルを取得して判定する
+        // Pixel 等ではユーザー補助設定が SubSettings 内のフラグメントとして表示される
+        if (className.contains("SubSettings") && !conditionChecker.isAllowed()) {
+            try {
+                val rootNode = rootInActiveWindow ?: return
+                val title = getWindowTitle(rootNode)
+                rootNode.recycle()
+                if (title != null && SettingsDetector.isBlockedTitle(title)) {
+                    blockAndGoHome()
+                    Log.i(TAG, "Blocked SubSettings with title: $title")
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Error checking SubSettings: ${e.message}")
+            }
         }
     }
 
@@ -87,16 +104,48 @@ class GuardAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 現在のウィンドウからツールバーのタイトルテキストを抽出
+     * 現在のウィンドウからツールバーのタイトルテキストを抽出。
+     * 複数の方法でタイトルを取得し、汎用的な値（"SubSettings" 等）は除外する。
      */
     private fun getWindowTitle(root: AccessibilityNodeInfo): String? {
-        // まず windows API からタイトル取得を試みる（API 28+）
+        // 1. windows API からタイトル取得を試みる（API 28+）
+        //    ただし汎用タイトルは無視してノードツリーに委ねる
         try {
             for (window in windows) {
                 if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
                     val title = window.title?.toString()
-                    if (title != null) return title
+                    if (!title.isNullOrBlank()
+                        && !title.equals("SubSettings", ignoreCase = true)
+                        && !title.equals("設定", ignoreCase = true)
+                        && !title.equals("Settings", ignoreCase = true)
+                    ) {
+                        return title
+                    }
                 }
+            }
+        } catch (_: Exception) {}
+
+        // 2. コラプシングツールバーのタイトル TextView を探索（Pixel の設定アプリ）
+        try {
+            val titleNodes = root.findAccessibilityNodeInfosByViewId(
+                "com.android.settings:id/collapsing_toolbar_title"
+            )
+            if (!titleNodes.isNullOrEmpty()) {
+                val text = titleNodes[0].text?.toString()
+                titleNodes.forEach { it.recycle() }
+                if (!text.isNullOrBlank()) return text
+            }
+        } catch (_: Exception) {}
+
+        // 3. アクションバーのタイトルを探索（フォールバック）
+        try {
+            val titleNodes = root.findAccessibilityNodeInfosByViewId(
+                "android:id/title"
+            )
+            if (!titleNodes.isNullOrEmpty()) {
+                val text = titleNodes[0].text?.toString()
+                titleNodes.forEach { it.recycle() }
+                if (!text.isNullOrBlank()) return text
             }
         } catch (_: Exception) {}
 

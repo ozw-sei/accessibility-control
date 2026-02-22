@@ -141,6 +141,13 @@ class SettingsDetectorTest {
     }
 
     @Test
+    fun `not blocked - SubSettings (generic container)`() {
+        assertFalse(SettingsDetector.isBlockedClassName(
+            "com.android.settings.SubSettings"
+        ))
+    }
+
+    @Test
     fun `not blocked - battery settings`() {
         assertFalse(SettingsDetector.isBlockedClassName(
             "com.android.settings.fuelgauge.BatterySettings"
