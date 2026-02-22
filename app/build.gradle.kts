@@ -7,6 +7,16 @@ android {
     namespace = "com.example.accessibilityguard"
     compileSdk = 34
 
+    // ローカル/CI で同じ署名を使うための debug keystore 設定
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "debug"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.example.accessibilityguard"
         minSdk = 28
@@ -17,6 +27,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
