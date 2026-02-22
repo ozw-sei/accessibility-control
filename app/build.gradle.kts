@@ -29,9 +29,13 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("debug")
+            // CI 環境ではデバッグ機能（Device Owner 解除等）を無効化
+            val isCI = System.getenv("CI") == "true"
+            buildConfigField("boolean", "ALLOW_DEBUG_FEATURES", if (isCI) "false" else "true")
         }
         release {
             isMinifyEnabled = false
+            buildConfigField("boolean", "ALLOW_DEBUG_FEATURES", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -50,6 +54,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

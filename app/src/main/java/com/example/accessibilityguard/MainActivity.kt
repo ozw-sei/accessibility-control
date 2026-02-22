@@ -365,8 +365,8 @@ fun SetupCard(
 
             Divider(color = Color(0xFF2A2A4A))
 
-            // デバッグ: Device Owner 解除
-            if (isDeviceOwner) {
+            // デバッグ: Device Owner 解除（ローカルビルドのみ表示）
+            if (isDeviceOwner && BuildConfig.ALLOW_DEBUG_FEATURES) {
                 var showConfirm by remember { mutableStateOf(false) }
 
                 if (showConfirm) {

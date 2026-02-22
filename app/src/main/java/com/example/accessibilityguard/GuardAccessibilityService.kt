@@ -1,6 +1,8 @@
 package com.example.accessibilityguard
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -25,6 +27,10 @@ class GuardAccessibilityService : AccessibilityService() {
     private lateinit var conditionChecker: ConditionChecker
     private var lastBlockedTime = 0L
     private val BLOCK_COOLDOWN_MS = 1000L // Toast 連打防止
+
+    // SubSettings のタイトル取得リトライ用
+    private val handler = Handler(Looper.getMainLooper())
+    private val RETRY_DELAYS_MS = longArrayOf(150, 400, 800, 1500, 3000)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -55,6 +61,7 @@ class GuardAccessibilityService : AccessibilityService() {
         val className = event.className?.toString() ?: return
 
         if (SettingsDetector.isBlockedClassName(className) && !conditionChecker.isAllowed()) {
+            cancelPendingRetries()
             blockAndGoHome()
             Log.i(TAG, "Blocked window state: $className")
             return
@@ -63,18 +70,169 @@ class GuardAccessibilityService : AccessibilityService() {
         // SubSettings は汎用アクティビティなので、ノードツリーからタイトルを取得して判定する
         // Pixel 等ではユーザー補助設定が SubSettings 内のフラグメントとして表示される
         if (className.contains("SubSettings") && !conditionChecker.isAllowed()) {
-            try {
-                val rootNode = rootInActiveWindow ?: return
-                val title = getWindowTitle(rootNode)
-                rootNode.recycle()
-                if (title != null && SettingsDetector.isBlockedTitle(title)) {
-                    blockAndGoHome()
-                    Log.i(TAG, "Blocked SubSettings with title: $title")
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Error checking SubSettings: ${e.message}")
+            cancelPendingRetries()
+            if (!tryBlockByTitle("SubSettings immediate")) {
+                // タイトルがまだ描画されていない場合、リトライをスケジュール
+                scheduleSubSettingsRetries()
             }
         }
+    }
+
+    /**
+     * 現在のノードツリーからタイトルを取得し、ブロック対象ならブロックする。
+     * タイトル取得に失敗した場合はノードツリーのテキストを直接スキャンする。
+     * @return ブロックに成功した場合 true
+     */
+    private fun tryBlockByTitle(source: String): Boolean {
+        try {
+            val rootNode = rootInActiveWindow ?: return false
+
+            // 1. タイトルベースの判定
+            val title = getWindowTitle(rootNode)
+            if (title != null && SettingsDetector.isBlockedTitle(title)) {
+                rootNode.recycle()
+                blockAndGoHome()
+                Log.i(TAG, "Blocked ($source) via title: $title")
+                return true
+            }
+
+            // 2. タイトルが取得できない/ブロック対象でない場合、
+            //    ノードツリーからブロック対象テキストを直接検索
+            val blockedText = findBlockedTextInNodes(rootNode)
+            rootNode.recycle()
+            if (blockedText != null) {
+                blockAndGoHome()
+                Log.i(TAG, "Blocked ($source) via node scan: $blockedText")
+                return true
+            }
+
+            Log.d(TAG, "Title check ($source): ${title ?: "(null)"}, node scan: not found")
+        } catch (e: Exception) {
+            Log.d(TAG, "Error checking title ($source): ${e.message}")
+        }
+        return false
+    }
+
+    /**
+     * ノードツリーからブロック対象のテキストを検索する。
+     * findAccessibilityNodeInfosByText を使って効率的に検索。
+     * @return 見つかったブロック対象テキスト、なければ null
+     */
+    private fun findBlockedTextInNodes(root: AccessibilityNodeInfo): String? {
+        for (pattern in SettingsDetector.BLOCKED_TITLE_PATTERNS) {
+            try {
+                val nodes = root.findAccessibilityNodeInfosByText(pattern)
+                if (!nodes.isNullOrEmpty()) {
+                    // ヘッダー要素（heading ロールやツールバー等）のテキストのみ対象にする
+                    // リスト内のアイテムテキストを誤検出しないようにする
+                    for (node in nodes) {
+                        val text = node.text?.toString() ?: continue
+                        // テキストがブロック対象パターンにマッチし、
+                        // かつヘッダー的な要素（heading、ツールバー内）であるか確認
+                        if (SettingsDetector.isBlockedTitle(text) && isHeaderNode(node)) {
+                            nodes.forEach { it.recycle() }
+                            return text
+                        }
+                    }
+                    nodes.forEach { it.recycle() }
+                }
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    /**
+     * ノードがヘッダー/タイトル的な要素かどうかを判定する。
+     * リストアイテムのテキストを誤検出しないためのフィルタ。
+     */
+    private fun isHeaderNode(node: AccessibilityNodeInfo): Boolean {
+        try {
+            // heading として宣言されている
+            if (node.isHeading) return true
+
+            // View ID がタイトル系
+            val viewId = node.viewIdResourceName ?: ""
+            if (viewId.contains("title", ignoreCase = true)
+                && (viewId.contains("collapsing") || viewId.contains("toolbar")
+                    || viewId.contains("action_bar") || viewId.contains("header"))
+            ) {
+                return true
+            }
+
+            // 親を辿ってツールバーやヘッダー内かチェック（最大5階層）
+            var parent = node.parent
+            var depth = 0
+            while (parent != null && depth < 5) {
+                val parentClass = parent.className?.toString() ?: ""
+                val parentId = parent.viewIdResourceName ?: ""
+                if (parentClass.contains("Toolbar", ignoreCase = true)
+                    || parentClass.contains("ActionBar", ignoreCase = true)
+                    || parentId.contains("toolbar", ignoreCase = true)
+                    || parentId.contains("action_bar", ignoreCase = true)
+                    || parentId.contains("collapsing", ignoreCase = true)
+                ) {
+                    parent.recycle()
+                    return true
+                }
+                val nextParent = parent.parent
+                parent.recycle()
+                parent = nextParent
+                depth++
+            }
+            parent?.recycle()
+        } catch (_: Exception) {}
+        return false
+    }
+
+    /**
+     * SubSettings のタイトル取得を遅延リトライする。
+     * TYPE_WINDOW_STATE_CHANGED の時点ではフラグメントのタイトル UI が
+     * まだ描画されていないことがあるため、複数回のリトライで対応する。
+     */
+    private fun scheduleSubSettingsRetries() {
+        Log.d(TAG, "Scheduling SubSettings retries")
+        for ((index, delayMs) in RETRY_DELAYS_MS.withIndex()) {
+            val retryRunnable = Runnable {
+                // リトライ時に条件が変わっている可能性もチェック
+                if (conditionChecker.isAllowed()) {
+                    Log.d(TAG, "Retry #${index + 1}: condition now allowed, skipping")
+                    return@Runnable
+                }
+                // 現在のウィンドウがまだ設定アプリか確認
+                try {
+                    val rootNode = rootInActiveWindow
+                    if (rootNode == null) {
+                        Log.d(TAG, "Retry #${index + 1}: no root node")
+                        return@Runnable
+                    }
+                    val currentPackage = rootNode.packageName?.toString()
+                    if (currentPackage == null || !SettingsDetector.isSettingsPackage(currentPackage)) {
+                        rootNode.recycle()
+                        Log.d(TAG, "Retry #${index + 1}: no longer in settings ($currentPackage)")
+                        return@Runnable
+                    }
+                    rootNode.recycle()
+                } catch (e: Exception) {
+                    Log.d(TAG, "Retry #${index + 1}: error checking package: ${e.message}")
+                    return@Runnable
+                }
+
+                if (tryBlockByTitle("SubSettings retry #${index + 1}")) {
+                    // ブロック成功 → 以降のリトライをキャンセル
+                    cancelPendingRetries()
+                }
+            }
+            handler.postDelayed(retryRunnable, delayMs)
+        }
+        // 最後のリトライの Runnable を保持（キャンセル用の目印）
+        // 実際には全 Runnable をキャンセルするため handler.removeCallbacksAndMessages を使う
+    }
+
+    /**
+     * 保留中のリトライをすべてキャンセル
+     */
+    private fun cancelPendingRetries() {
+        handler.removeCallbacksAndMessages(null)
     }
 
     /**
@@ -86,16 +244,27 @@ class GuardAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now - lastBlockedTime < 300) return
 
+        if (conditionChecker.isAllowed()) return
+
         try {
             val rootNode = rootInActiveWindow ?: return
             val title = getWindowTitle(rootNode)
-            rootNode.recycle()
 
-            if (title != null) {
-                if (SettingsDetector.isBlockedTitle(title) && !conditionChecker.isAllowed()) {
-                    blockAndGoHome()
-                    Log.i(TAG, "Blocked content with title: $title")
-                }
+            if (title != null && SettingsDetector.isBlockedTitle(title)) {
+                rootNode.recycle()
+                cancelPendingRetries()
+                blockAndGoHome()
+                Log.i(TAG, "Blocked content via title: $title")
+                return
+            }
+
+            // タイトルで検出できない場合、ノードツリーを直接スキャン
+            val blockedText = findBlockedTextInNodes(rootNode)
+            rootNode.recycle()
+            if (blockedText != null) {
+                cancelPendingRetries()
+                blockAndGoHome()
+                Log.i(TAG, "Blocked content via node scan: $blockedText")
             }
         } catch (e: Exception) {
             // AccessibilityNodeInfo の操作は例外が出やすいので握りつぶす
@@ -138,14 +307,21 @@ class GuardAccessibilityService : AccessibilityService() {
         } catch (_: Exception) {}
 
         // 3. アクションバーのタイトルを探索（フォールバック）
+        //    android:id/title は汎用的でリストアイテムにもマッチするため、
+        //    ActionBar/Toolbar 内のノードのみ対象にする
         try {
             val titleNodes = root.findAccessibilityNodeInfosByViewId(
                 "android:id/title"
             )
             if (!titleNodes.isNullOrEmpty()) {
-                val text = titleNodes[0].text?.toString()
+                for (titleNode in titleNodes) {
+                    val text = titleNode.text?.toString()
+                    if (!text.isNullOrBlank() && isHeaderNode(titleNode)) {
+                        titleNodes.forEach { it.recycle() }
+                        return text
+                    }
+                }
                 titleNodes.forEach { it.recycle() }
-                if (!text.isNullOrBlank()) return text
             }
         } catch (_: Exception) {}
 
@@ -175,6 +351,7 @@ class GuardAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        cancelPendingRetries()
         super.onDestroy()
         Log.w(TAG, "AccessibilityService destroyed — watchdog should re-enable")
     }

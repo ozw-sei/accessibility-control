@@ -181,6 +181,56 @@ adb shell dumpsys activity activities | grep -i accessibility
 adb shell pm list packages | grep freedom
 ```
 
+## 緊急時の Device Owner 解除方法
+
+CI ビルド（debug/release 共に）では `BuildConfig.ALLOW_DEBUG_FEATURES = false` となり、UI からの Device Owner 解除ボタンが非表示になる。以下の方法で緊急解除が可能。
+
+### 方法1: ローカルビルドに差し替える（推奨）
+
+ローカルビルドでは `ALLOW_DEBUG_FEATURES = true` なので UI に解除ボタンが表示される。ただし署名が異なると上書きインストールできないため、先に JDWP で Device Owner を解除してからアンインストール → ローカルビルドをインストールする流れになる。
+
+### 方法2: JDWP デバッガ（jdb）で直接解除
+
+アプリプロセスにデバッガを接続し、`clearDeviceOwnerApp()` を実行する。PC（ADB 接続）が必要。
+
+```bash
+# 1. アプリの PID を取得
+adb shell pidof com.example.accessibilityguard
+
+# 2. JDWP ポートフォワード
+adb forward tcp:8700 jdwp:<PID>
+
+# 3. jdb で接続し、ブレークポイントを設定
+jdb -connect com.sun.jdi.SocketAttach:hostname=localhost,port=8700
+
+# 4. jdb プロンプトで以下を実行
+stop in com.example.accessibilityguard.GuardAccessibilityService.onAccessibilityEvent
+resume
+
+# 5. 端末で設定アプリを開いてブレークポイントにヒットさせる
+#    （別ターミナルで）
+adb shell am start -a android.settings.SETTINGS
+
+# 6. ヒット後、jdb プロンプトで eval を実行
+eval ((android.app.admin.DevicePolicyManager)this.getSystemService("device_policy")).clearDeviceOwnerApp("com.example.accessibilityguard")
+
+# 7. <void value> が返れば成功。アプリをアンインストール可能になる
+adb uninstall com.example.accessibilityguard
+```
+
+### 方法3: Factory Reset
+
+最終手段。端末の全データが消去される。
+
+## デバッグ機能の制御
+
+`BuildConfig.ALLOW_DEBUG_FEATURES` で制御。環境変数 `CI=true`（GitHub Actions が自動設定）の有無で切り替わる。
+
+| ビルド環境 | debug | release |
+|-----------|-------|---------|
+| ローカル   | `true` (解除ボタン表示) | `false` |
+| CI        | `false` | `false` |
+
 ## 注意事項
 
 - `dpm set-device-owner` は端末にアカウントが 1 つだけの状態で実行する必要がある
