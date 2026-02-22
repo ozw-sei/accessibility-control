@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Accessibility Guard</string>
+    <string name="accessibility_service_description">ユーザー補助設定へのアクセスを指定時間帯以外ブロックし、Freedomなどのアプリブロッカーをうっかり無効化することを防ぎます。</string>
+    <string name="notification_channel_name">Guard Watchdog</string>
+    <string name="notification_channel_description">ガードサービスの稼働状態を表示します</string>
+</resources>
