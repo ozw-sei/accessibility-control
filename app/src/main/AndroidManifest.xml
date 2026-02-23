@@ -6,6 +6,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Freedom のパッケージ情報を取得するために必要 (Android 11+ パッケージ可視性) -->
+    <queries>
+        <package android:name="to.freedom.android2" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
