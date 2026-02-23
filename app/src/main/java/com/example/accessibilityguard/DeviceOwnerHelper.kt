@@ -9,7 +9,7 @@ import android.util.Log
 
 /**
  * Device Owner 権限を使ったユーティリティ。
- * - アプリのアンインストールブロック
+ * - アプリ + Freedom のアンインストールブロック
  * - AccessibilityService の自動復旧
  * - 許可された AccessibilityService の制限
  */
@@ -30,18 +30,18 @@ object DeviceOwnerHelper {
         return getDpm(context).isDeviceOwnerApp(context.packageName)
     }
 
-    /** アンインストールをブロック */
-    fun blockUninstall(context: Context) {
+    /** アンインストールをブロック（自アプリ + Freedom） */
+    fun blockUninstall(context: Context, freedomPackage: String = "to.freedom.android2") {
         if (!isDeviceOwner(context)) return
-        try {
-            getDpm(context).setUninstallBlocked(
-                getAdmin(context),
-                context.packageName,
-                true
-            )
-            Log.i(TAG, "Uninstall blocked")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to block uninstall", e)
+        val admin = getAdmin(context)
+        val dpm = getDpm(context)
+        for (pkg in listOf(context.packageName, freedomPackage)) {
+            try {
+                dpm.setUninstallBlocked(admin, pkg, true)
+                Log.i(TAG, "Uninstall blocked: $pkg")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to block uninstall: $pkg", e)
+            }
         }
     }
 

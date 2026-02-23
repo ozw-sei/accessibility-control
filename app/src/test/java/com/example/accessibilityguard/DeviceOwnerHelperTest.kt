@@ -61,6 +61,15 @@ class DeviceOwnerHelperTest {
         shadowDpm.setDeviceOwner(adminComponent)
         DeviceOwnerHelper.blockUninstall(context)
         assertTrue(dpm.isUninstallBlocked(adminComponent, context.packageName))
+        assertTrue(dpm.isUninstallBlocked(adminComponent, "to.freedom.android2"))
+    }
+
+    @Test
+    fun `blockUninstall - blocks custom freedom package`() {
+        shadowDpm.setDeviceOwner(adminComponent)
+        DeviceOwnerHelper.blockUninstall(context, freedomPackage = "com.custom.freedom")
+        assertTrue(dpm.isUninstallBlocked(adminComponent, context.packageName))
+        assertTrue(dpm.isUninstallBlocked(adminComponent, "com.custom.freedom"))
     }
 
     // ===== restrictAccessibilityServices =====
