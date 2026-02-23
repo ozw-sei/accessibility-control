@@ -106,10 +106,22 @@ class DeviceOwnerHelperTest {
     // ===== ensureAccessibilityServiceEnabled =====
 
     @Test
-    fun `ensureAccessibilityServiceEnabled - returns false when not device owner and disabled`() {
-        // No Device Owner, service is not enabled
+    fun `ensureAccessibilityServiceEnabled - falls back to WRITE_SECURE_SETTINGS when not device owner`() {
+        // Not Device Owner, but WRITE_SECURE_SETTINGS フォールバックで有効化を試みる
+        // Robolectric ではパーミッションチェックがないため putString が成功する
         val result = DeviceOwnerHelper.ensureAccessibilityServiceEnabled(context)
-        assertFalse(result)
+        assertTrue(result)
+
+        // 実際に設定が書き込まれたことを確認
+        val enabled = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        )
+        val serviceComponent = ComponentName(
+            context,
+            GuardAccessibilityService::class.java
+        ).flattenToString()
+        assertTrue(enabled.contains(serviceComponent))
     }
 
     @Test

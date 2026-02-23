@@ -49,7 +49,12 @@ object DeviceOwnerHelper {
 
     /**
      * このアプリの AccessibilityService が有効かチェックし、
-     * 無効なら Device Owner 権限で再有効化を試みる。
+     * 無効なら再有効化を試みる。
+     *
+     * 有効化の優先順位:
+     * 1. Device Owner の setSecureSetting（一部デバイスでブロックされる）
+     * 2. WRITE_SECURE_SETTINGS パーミッションで Settings.Secure.putString
+     *    （adb shell pm grant ... android.permission.WRITE_SECURE_SETTINGS が必要）
      */
     fun ensureAccessibilityServiceEnabled(context: Context): Boolean {
         val serviceComponent = ComponentName(
@@ -66,39 +71,13 @@ object DeviceOwnerHelper {
             return true // 既に有効
         }
 
-        // Device Owner で再有効化を試みる
-        if (!isDeviceOwner(context)) {
-            Log.w(TAG, "Not device owner, cannot re-enable accessibility service")
-            return false
+        val newValue = if (enabledServices.isEmpty()) {
+            serviceComponent
+        } else {
+            "$enabledServices:$serviceComponent"
         }
 
-        return try {
-            val newValue = if (enabledServices.isEmpty()) {
-                serviceComponent
-            } else {
-                "$enabledServices:$serviceComponent"
-            }
-
-            getDpm(context).setSecureSetting(
-                getAdmin(context),
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-                newValue
-            )
-            getDpm(context).setSecureSetting(
-                getAdmin(context),
-                Settings.Secure.ACCESSIBILITY_ENABLED,
-                "1"
-            )
-            Log.i(TAG, "Accessibility service re-enabled via Device Owner")
-            true
-        } catch (e: SecurityException) {
-            // 一部のデバイス/バージョンでは setSecureSetting が制限される
-            Log.e(TAG, "setSecureSetting blocked: ${e.message}")
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to re-enable accessibility service", e)
-            false
-        }
+        return writeAccessibilitySettings(context, newValue)
     }
 
     /**
@@ -136,7 +115,7 @@ object DeviceOwnerHelper {
     }
 
     /**
-     * Freedom の AccessibilityService を Device Owner 権限で有効化する。
+     * Freedom の AccessibilityService を有効化する。
      * ユーザー補助設定画面を開かずに Freedom を有効化できる。
      *
      * @return 有効化に成功した場合 true、既に有効な場合も true
@@ -170,39 +149,15 @@ object DeviceOwnerHelper {
             return true
         }
 
-        if (!isDeviceOwner(context)) {
-            Log.w(TAG, "Not device owner, cannot enable Freedom accessibility service")
-            return false
-        }
-
-        return try {
-            // 新しいサービスを追加
-            var newValue = enabledServices
-            for (service in freedomServices) {
-                if (!newValue.contains(service)) {
-                    newValue = if (newValue.isEmpty()) service else "$newValue:$service"
-                }
+        // 新しいサービスを追加
+        var newValue = enabledServices
+        for (service in freedomServices) {
+            if (!newValue.contains(service)) {
+                newValue = if (newValue.isEmpty()) service else "$newValue:$service"
             }
-
-            getDpm(context).setSecureSetting(
-                getAdmin(context),
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-                newValue
-            )
-            getDpm(context).setSecureSetting(
-                getAdmin(context),
-                Settings.Secure.ACCESSIBILITY_ENABLED,
-                "1"
-            )
-            Log.i(TAG, "Freedom accessibility services enabled: $freedomServices")
-            true
-        } catch (e: SecurityException) {
-            Log.e(TAG, "setSecureSetting blocked: ${e.message}")
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to enable Freedom accessibility service", e)
-            false
         }
+
+        return writeAccessibilitySettings(context, newValue)
     }
 
     /**
@@ -227,6 +182,66 @@ object DeviceOwnerHelper {
             context.packageManager.getPackageInfo(packageName, 0)
             true
         } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
+    /**
+     * AccessibilityService の有効化設定を書き込む。
+     *
+     * 書き込み方法の優先順位:
+     * 1. Device Owner の setSecureSetting
+     * 2. WRITE_SECURE_SETTINGS パーミッションで Settings.Secure.putString
+     *
+     * Pixel (Android 14) では Device Owner でも enabled_accessibility_services の
+     * 書き込みがブロックされるため、WRITE_SECURE_SETTINGS へのフォールバックが必須。
+     * パーミッション付与: adb shell pm grant com.example.accessibilityguard android.permission.WRITE_SECURE_SETTINGS
+     */
+    private fun writeAccessibilitySettings(context: Context, newServicesValue: String): Boolean {
+        // 方法1: Device Owner の setSecureSetting を試みる
+        if (isDeviceOwner(context)) {
+            try {
+                getDpm(context).setSecureSetting(
+                    getAdmin(context),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                    newServicesValue
+                )
+                getDpm(context).setSecureSetting(
+                    getAdmin(context),
+                    Settings.Secure.ACCESSIBILITY_ENABLED,
+                    "1"
+                )
+                Log.i(TAG, "Accessibility settings written via Device Owner")
+                return true
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Device Owner setSecureSetting blocked, trying WRITE_SECURE_SETTINGS: ${e.message}")
+            }
+        }
+
+        // 方法2: WRITE_SECURE_SETTINGS パーミッションで直接書き込み
+        return try {
+            val success1 = Settings.Secure.putString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                newServicesValue
+            )
+            val success2 = Settings.Secure.putString(
+                context.contentResolver,
+                Settings.Secure.ACCESSIBILITY_ENABLED,
+                "1"
+            )
+            if (success1 && success2) {
+                Log.i(TAG, "Accessibility settings written via WRITE_SECURE_SETTINGS")
+                true
+            } else {
+                Log.e(TAG, "putString returned false (WRITE_SECURE_SETTINGS not granted?)")
+                false
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "WRITE_SECURE_SETTINGS also denied. Grant via: adb shell pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS", e)
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to write accessibility settings", e)
             false
         }
     }
