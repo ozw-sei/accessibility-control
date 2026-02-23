@@ -1,11 +1,13 @@
 package com.example.accessibilityguard
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
-import android.os.UserManager
+import android.content.pm.PackageManager
 import android.provider.Settings
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
 
 /**
  * Device Owner 権限を使ったユーティリティ。
@@ -131,6 +133,116 @@ object DeviceOwnerHelper {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to restrict accessibility services", e)
         }
+    }
+
+    /**
+     * Freedom の AccessibilityService を Device Owner 権限で有効化する。
+     * ユーザー補助設定画面を開かずに Freedom を有効化できる。
+     *
+     * @return 有効化に成功した場合 true、既に有効な場合も true
+     */
+    fun enableFreedomAccessibilityService(
+        context: Context,
+        freedomPackage: String = "to.freedom.android2"
+    ): Boolean {
+        // Freedom のインストール確認
+        if (!isPackageInstalled(context, freedomPackage)) {
+            Log.w(TAG, "Freedom ($freedomPackage) is not installed")
+            return false
+        }
+
+        // Freedom の AccessibilityService コンポーネントを検出
+        val freedomServices = findAccessibilityServices(context, freedomPackage)
+        if (freedomServices.isEmpty()) {
+            Log.w(TAG, "No AccessibilityService found in $freedomPackage")
+            return false
+        }
+
+        val enabledServices = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: ""
+
+        // 既に全て有効か確認
+        val allEnabled = freedomServices.all { enabledServices.contains(it) }
+        if (allEnabled) {
+            Log.i(TAG, "Freedom accessibility services already enabled")
+            return true
+        }
+
+        if (!isDeviceOwner(context)) {
+            Log.w(TAG, "Not device owner, cannot enable Freedom accessibility service")
+            return false
+        }
+
+        return try {
+            // 新しいサービスを追加
+            var newValue = enabledServices
+            for (service in freedomServices) {
+                if (!newValue.contains(service)) {
+                    newValue = if (newValue.isEmpty()) service else "$newValue:$service"
+                }
+            }
+
+            getDpm(context).setSecureSetting(
+                getAdmin(context),
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                newValue
+            )
+            getDpm(context).setSecureSetting(
+                getAdmin(context),
+                Settings.Secure.ACCESSIBILITY_ENABLED,
+                "1"
+            )
+            Log.i(TAG, "Freedom accessibility services enabled: $freedomServices")
+            true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "setSecureSetting blocked: ${e.message}")
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enable Freedom accessibility service", e)
+            false
+        }
+    }
+
+    /**
+     * Freedom の AccessibilityService が有効かどうか確認する。
+     */
+    fun isFreedomAccessibilityEnabled(
+        context: Context,
+        freedomPackage: String = "to.freedom.android2"
+    ): Boolean {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServices = am.getEnabledAccessibilityServiceList(
+            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+        )
+        return enabledServices.any { it.resolveInfo.serviceInfo.packageName == freedomPackage }
+    }
+
+    /**
+     * Freedom がインストールされているか確認する。
+     */
+    fun isPackageInstalled(context: Context, packageName: String): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
+    /**
+     * 指定パッケージの AccessibilityService コンポーネント名を検出する。
+     */
+    private fun findAccessibilityServices(context: Context, packageName: String): List<String> {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val allServices = am.installedAccessibilityServiceList
+        return allServices
+            .filter { it.resolveInfo.serviceInfo.packageName == packageName }
+            .map {
+                val si = it.resolveInfo.serviceInfo
+                ComponentName(si.packageName, si.name).flattenToString()
+            }
     }
 
     /** Device Owner 状態を解除（デバッグ用） */

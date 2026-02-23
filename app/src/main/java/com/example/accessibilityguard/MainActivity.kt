@@ -80,6 +80,12 @@ fun GuardApp() {
     val isCharging = remember(tick) { checker.isCharging() }
     val isDeviceOwner = remember(tick) { DeviceOwnerHelper.isDeviceOwner(context) }
     val isA11yEnabled = remember(tick) { isAccessibilityServiceEnabled(context) }
+    val isFreedomInstalled = remember(tick) {
+        DeviceOwnerHelper.isPackageInstalled(context, SettingsDetector.DEFAULT_FREEDOM_PACKAGE)
+    }
+    val isFreedomA11yEnabled = remember(tick) {
+        DeviceOwnerHelper.isFreedomAccessibilityEnabled(context)
+    }
     val currentTime = remember(tick) {
         LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
     }
@@ -116,6 +122,8 @@ fun GuardApp() {
                 isCharging = isCharging,
                 isDeviceOwner = isDeviceOwner,
                 isA11yEnabled = isA11yEnabled,
+                isFreedomInstalled = isFreedomInstalled,
+                isFreedomA11yEnabled = isFreedomA11yEnabled,
                 guardEnabled = guardEnabled,
             )
 
@@ -147,6 +155,8 @@ fun GuardApp() {
                 context = context,
                 isDeviceOwner = isDeviceOwner,
                 isA11yEnabled = isA11yEnabled,
+                isFreedomInstalled = isFreedomInstalled,
+                isFreedomA11yEnabled = isFreedomA11yEnabled,
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -161,6 +171,8 @@ fun StatusCard(
     isCharging: Boolean,
     isDeviceOwner: Boolean,
     isA11yEnabled: Boolean,
+    isFreedomInstalled: Boolean,
+    isFreedomA11yEnabled: Boolean,
     guardEnabled: Boolean,
 ) {
     Card(
@@ -200,6 +212,8 @@ fun StatusCard(
 
             StatusRow("Device Owner", isDeviceOwner)
             StatusRow("AccessibilityService", isA11yEnabled)
+            StatusRow("Freedom インストール", isFreedomInstalled)
+            StatusRow("Freedom ユーザー補助", isFreedomA11yEnabled)
             StatusRow("充電中", isCharging)
         }
     }
@@ -320,6 +334,8 @@ fun SetupCard(
     context: Context,
     isDeviceOwner: Boolean,
     isA11yEnabled: Boolean,
+    isFreedomInstalled: Boolean,
+    isFreedomA11yEnabled: Boolean,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF16213E)),
@@ -361,6 +377,47 @@ fun SetupCard(
                 )
             } else {
                 Text("✅ AccessibilityService 有効", fontSize = 14.sp, color = Color(0xFF81C784))
+            }
+
+            Divider(color = Color(0xFF2A2A4A))
+
+            // ---- Freedom 管理 ----
+            Text("Freedom", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+            if (!isFreedomInstalled) {
+                Text(
+                    "⚠ Freedom がインストールされていません",
+                    fontSize = 12.sp,
+                    color = Color(0xFFFFAB91),
+                )
+            } else if (!isFreedomA11yEnabled) {
+                if (isDeviceOwner) {
+                    Button(
+                        onClick = {
+                            val success = DeviceOwnerHelper.enableFreedomAccessibilityService(context)
+                            val msg = if (success) "Freedom を有効化しました"
+                                      else "Freedom の有効化に失敗しました"
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Freedom のユーザー補助を有効化")
+                    }
+                    Text(
+                        "Device Owner 権限で直接有効化します\n（ユーザー補助設定を開く必要はありません）",
+                        fontSize = 12.sp,
+                        color = Color(0xFF90CAF9),
+                    )
+                } else {
+                    Text(
+                        "⚠ Freedom のユーザー補助が無効です\n" +
+                            "Device Owner を設定すれば、このアプリから直接有効化できます",
+                        fontSize = 12.sp,
+                        color = Color(0xFFFFAB91),
+                    )
+                }
+            } else {
+                Text("✅ Freedom ユーザー補助 有効", fontSize = 14.sp, color = Color(0xFF81C784))
             }
 
             Divider(color = Color(0xFF2A2A4A))
