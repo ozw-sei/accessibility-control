@@ -10,13 +10,14 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
 
 /**
- * 設定アプリのユーザー補助画面を監視し、
+ * 設定アプリのユーザー補助画面と Freedom の Device Admin 管理画面を監視し、
  * 許可条件外であれば HOME に戻すことでアクセスをブロックする。
  *
  * ブロック対象:
  * - ユーザー補助設定のメイン画面
  * - 個々のユーザー補助サービスの詳細画面
  * - 設定アプリ内の検索結果から「ユーザー補助」へ遷移するケース
+ * - Freedom の Device Admin 無効化/アンインストール画面
  */
 class GuardAccessibilityService : AccessibilityService() {
 
@@ -60,10 +61,24 @@ class GuardAccessibilityService : AccessibilityService() {
     private fun handleWindowStateChanged(event: AccessibilityEvent) {
         val className = event.className?.toString() ?: return
 
+        // ユーザー補助設定画面のブロック
         if (SettingsDetector.isBlockedClassName(className) && !conditionChecker.isAllowed()) {
             cancelPendingRetries()
             blockAndGoHome()
             Log.i(TAG, "Blocked window state: $className")
+            return
+        }
+
+        // Device Admin 管理画面のブロック（Freedom 関連）
+        // DeviceAdminAdd は Freedom の「無効にしてアンインストール」確認画面
+        // 条件に関わらず Freedom の保護は常時有効
+        if (SettingsDetector.isDeviceAdminClassName(className)) {
+            cancelPendingRetries()
+            if (tryBlockDeviceAdmin("DeviceAdmin class: $className")) {
+                return
+            }
+            // ノードツリーがまだ描画されていない場合、リトライ
+            scheduleDeviceAdminRetries()
             return
         }
 
@@ -328,20 +343,107 @@ class GuardAccessibilityService : AccessibilityService() {
         return null
     }
 
+    /**
+     * Device Admin 画面で Freedom 関連のコンテンツが表示されているかチェックし、
+     * 表示されていればブロックする。
+     * Freedom の Device Admin 無効化は常時ブロック（許可ウィンドウ内でも）。
+     * @return ブロックに成功した場合 true
+     */
+    private fun tryBlockDeviceAdmin(source: String): Boolean {
+        try {
+            val rootNode = rootInActiveWindow ?: return false
+            val found = scanForFreedomText(rootNode)
+            rootNode.recycle()
+
+            if (found) {
+                blockAndGoHome(isFreedomProtection = true)
+                Log.i(TAG, "Blocked Freedom Device Admin ($source)")
+                return true
+            }
+            Log.d(TAG, "DeviceAdmin screen but no Freedom text ($source)")
+        } catch (e: Exception) {
+            Log.d(TAG, "Error checking DeviceAdmin ($source): ${e.message}")
+        }
+        return false
+    }
+
+    /**
+     * ノードツリーから Freedom 関連テキストを検索する。
+     */
+    private fun scanForFreedomText(root: AccessibilityNodeInfo): Boolean {
+        for (pattern in SettingsDetector.FREEDOM_TEXT_PATTERNS) {
+            try {
+                val nodes = root.findAccessibilityNodeInfosByText(pattern)
+                if (!nodes.isNullOrEmpty()) {
+                    nodes.forEach { it.recycle() }
+                    return true
+                }
+            } catch (_: Exception) {}
+        }
+        // パッケージ名での検索もフォールバックとして行う
+        try {
+            val nodes = root.findAccessibilityNodeInfosByText(SettingsDetector.DEFAULT_FREEDOM_PACKAGE)
+            if (!nodes.isNullOrEmpty()) {
+                nodes.forEach { it.recycle() }
+                return true
+            }
+        } catch (_: Exception) {}
+        return false
+    }
+
+    /**
+     * Device Admin 画面の Freedom テキスト検出をリトライする。
+     * 画面描画が遅れてノードツリーがまだ空の場合に対応。
+     */
+    private fun scheduleDeviceAdminRetries() {
+        Log.d(TAG, "Scheduling DeviceAdmin retries")
+        for ((index, delayMs) in RETRY_DELAYS_MS.withIndex()) {
+            val retryRunnable = Runnable {
+                try {
+                    val rootNode = rootInActiveWindow
+                    if (rootNode == null) {
+                        Log.d(TAG, "DeviceAdmin retry #${index + 1}: no root node")
+                        return@Runnable
+                    }
+                    val currentPackage = rootNode.packageName?.toString()
+                    if (currentPackage == null || !SettingsDetector.isSettingsPackage(currentPackage)) {
+                        rootNode.recycle()
+                        Log.d(TAG, "DeviceAdmin retry #${index + 1}: no longer in settings")
+                        return@Runnable
+                    }
+                    rootNode.recycle()
+                } catch (e: Exception) {
+                    Log.d(TAG, "DeviceAdmin retry #${index + 1}: error: ${e.message}")
+                    return@Runnable
+                }
+
+                if (tryBlockDeviceAdmin("DeviceAdmin retry #${index + 1}")) {
+                    cancelPendingRetries()
+                }
+            }
+            handler.postDelayed(retryRunnable, delayMs)
+        }
+    }
+
     private fun blockAndGoHome() {
+        blockAndGoHome(isFreedomProtection = false)
+    }
+
+    private fun blockAndGoHome(isFreedomProtection: Boolean) {
         performGlobalAction(GLOBAL_ACTION_HOME)
 
         val now = System.currentTimeMillis()
         if (now - lastBlockedTime > BLOCK_COOLDOWN_MS) {
-            val checker = conditionChecker
-            Toast.makeText(
-                this,
+            val message = if (isFreedomProtection) {
+                "🔒 Freedom の保護設定は変更できません"
+            } else {
+                val checker = conditionChecker
                 "🔒 ユーザー補助設定はロック中\n" +
                     "許可: ${"%02d:%02d".format(checker.getStartHour(), checker.getStartMinute())}" +
                     "〜${"%02d:%02d".format(checker.getEndHour(), checker.getEndMinute())}" +
-                    if (checker.getRequireCharging()) " (充電中)" else "",
-                Toast.LENGTH_LONG
-            ).show()
+                    if (checker.getRequireCharging()) " (充電中)" else ""
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
         lastBlockedTime = now
     }

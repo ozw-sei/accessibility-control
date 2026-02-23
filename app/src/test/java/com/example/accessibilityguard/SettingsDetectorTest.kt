@@ -254,4 +254,100 @@ class SettingsDetectorTest {
             "com.android.settings.SubAccessibilitySettingsFragment"
         ))
     }
+
+    // ===== isDeviceAdminClassName =====
+
+    @Test
+    fun `device admin - DeviceAdminAdd`() {
+        assertTrue(SettingsDetector.isDeviceAdminClassName(
+            "com.android.settings.DeviceAdminAdd"
+        ))
+    }
+
+    @Test
+    fun `device admin - DeviceAdminSettings`() {
+        assertTrue(SettingsDetector.isDeviceAdminClassName(
+            "com.android.settings.DeviceAdminSettings"
+        ))
+    }
+
+    @Test
+    fun `device admin - DeviceAdministratorsSettings`() {
+        assertTrue(SettingsDetector.isDeviceAdminClassName(
+            "com.android.settings.DeviceAdministratorsSettings"
+        ))
+    }
+
+    @Test
+    fun `device admin - case insensitive`() {
+        assertTrue(SettingsDetector.isDeviceAdminClassName(
+            "com.android.settings.deviceadminadd"
+        ))
+    }
+
+    @Test
+    fun `device admin - null`() {
+        assertFalse(SettingsDetector.isDeviceAdminClassName(null))
+    }
+
+    @Test
+    fun `device admin - unrelated screen`() {
+        assertFalse(SettingsDetector.isDeviceAdminClassName(
+            "com.android.settings.display.DisplaySettings"
+        ))
+    }
+
+    // ===== isDeviceAdminTitle =====
+
+    @Test
+    fun `device admin title - Japanese`() {
+        assertTrue(SettingsDetector.isDeviceAdminTitle("デバイス管理アプリ"))
+    }
+
+    @Test
+    fun `device admin title - English`() {
+        assertTrue(SettingsDetector.isDeviceAdminTitle("Device admin apps"))
+    }
+
+    @Test
+    fun `device admin title - old Japanese`() {
+        assertTrue(SettingsDetector.isDeviceAdminTitle("端末管理アプリ"))
+    }
+
+    @Test
+    fun `device admin title - null`() {
+        assertFalse(SettingsDetector.isDeviceAdminTitle(null))
+    }
+
+    @Test
+    fun `device admin title - unrelated`() {
+        assertFalse(SettingsDetector.isDeviceAdminTitle("ディスプレイ"))
+    }
+
+    // ===== containsFreedomText =====
+
+    @Test
+    fun `freedom text - Freedom`() {
+        assertTrue(SettingsDetector.containsFreedomText("Freedom"))
+    }
+
+    @Test
+    fun `freedom text - lowercase`() {
+        assertTrue(SettingsDetector.containsFreedomText("freedom"))
+    }
+
+    @Test
+    fun `freedom text - in sentence`() {
+        assertTrue(SettingsDetector.containsFreedomText("このアプリ（Freedom）に次の操作を許可します"))
+    }
+
+    @Test
+    fun `freedom text - null`() {
+        assertFalse(SettingsDetector.containsFreedomText(null))
+    }
+
+    @Test
+    fun `freedom text - unrelated`() {
+        assertFalse(SettingsDetector.containsFreedomText("Google Chrome"))
+    }
 }

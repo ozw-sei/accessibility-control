@@ -24,8 +24,15 @@ class BootReceiver : BroadcastReceiver() {
                 // Watchdog 再登録
                 WatchdogWorker.schedule(context)
 
-                // AccessibilityService の復旧
-                DeviceOwnerHelper.ensureAccessibilityServiceEnabled(context)
+                // AccessibilityService の即時復旧を試みる
+                val restored = DeviceOwnerHelper.ensureAccessibilityServiceEnabled(context)
+
+                // 即時復旧に失敗した場合、リトライワーカーをスケジュール
+                // （更新直後はタイミングの問題で setSecureSetting が失敗することがある）
+                if (!restored) {
+                    Log.w(TAG, "Immediate restore failed, scheduling retry worker")
+                    ServiceRestoreWorker.schedule(context)
+                }
 
                 // アンインストールブロック再確認
                 DeviceOwnerHelper.blockUninstall(context)
