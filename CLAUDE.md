@@ -115,10 +115,10 @@ BootReceiver
   - `MainActivity` 自体も許可ウィンドウ外ではウィンドウ変更を UI で disable にしているが、Intent で直接起動される場合のガードが甘い
   - `MainActivity.onCreate()` で `ConditionChecker.isAllowed()` をチェックし、false なら設定タブを非表示にするか finish() する
 
-- [ ] **release 署名の設定**
-  - keystore を作成して `app/build.gradle.kts` に signingConfigs を追加
-  - GitHub Actions では Secrets に格納して CI で署名付きビルド
-  - 現状は unsigned release APK のみ出力
+- [x] **release 署名**
+  - release ビルドもコミット済み `app/debug.keystore` で署名する。鍵ファイル自体は変えない
+  - 鍵を変えると Device Owner のアプリを上書きできなくなるため、`ANDROID_*` secrets には切り替えない
+  - タグの GitHub Release にはこの署名済み APK を1つと `.sha256` を添付する（`release.yml`）
 
 - [ ] **ProGuard / R8 の設定確認**
   - `proguard-rules.pro` に最低限の keep ルールは書いてあるが、release ビルドで `isMinifyEnabled = true` にしたときに問題がないか確認

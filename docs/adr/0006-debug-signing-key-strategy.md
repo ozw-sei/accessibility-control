@@ -73,9 +73,9 @@ signingConfigs {
 1. **debug keystore の用途**: 開発・テスト専用。Google Play への公開には使えない
 2. **パスワードは公開情報**: Android SDK のデフォルト debug keystore もパスワード `android` で広く知られている
 3. **漏洩しても影響なし**: debug keystore で署名された APK は端末にサイドロードできるだけ。Store 配布不可
-4. **release keystore は別管理**: release ビルドの署名は別途 keystore を作成し、GitHub Secrets で管理する（未実装）
+4. **release も同じ鍵**: リリース用に別 keystore を作り `ANDROID_*` secrets で配る案は採用しない。release ビルドもこの `app/debug.keystore` で署名する（2026-10-26、オーナー判断）。鍵を差し替えると、Device Owner として入っているアプリは署名不一致で上書きできず、入れ直すには Device Owner の解除が必要になる。
 
-**Note**: release keystore は絶対にコミットしないこと。
+**Note**: 署名に使う keystore は `app/debug.keystore` だけ。別の release keystore は作らない。
 
 ## Consequences
 
