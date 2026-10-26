@@ -35,14 +35,26 @@ expect v1.2.3-beta.4 1.2.3-beta.4 1020304 true
 expect v0.1.5 0.1.5 10599 false
 expect v10.0.0 10.0.0 10000099 false
 expect v1.2.3-beta.08 1.2.3-beta.08 1020308 true
-expect v1.2.3-beta.0 1.2.3-beta.0 1020300 true
+expect v1.2.3-beta.1 1.2.3-beta.1 1020301 true
+expect v1.2.3-beta.98 1.2.3-beta.98 1020398 true
 expect v0.0.0 0.0.0 99 false
+expect v0.0.0-beta.1 0.0.0-beta.1 1 true
+expect v2099.99.99 2099.99.99 2099999999 false
+expect v2099.0.0 2099.0.0 2099000099 false
+expect v1.99.99 1.99.99 1999999 false
 
 expect_fail v1.2
 expect_fail v1.2.3-beta
 expect_fail v1.2.3-rc.1
+expect_fail v1.2.3-beta.0
+expect_fail v1.2.3-beta.00
+expect_fail v0.0.0-beta.0
 expect_fail v1.2.3-beta.99
 expect_fail v1.2.3-beta.100
+expect_fail v2100.0.0
+expect_fail v1.100.0
+expect_fail v1.2.100
+expect_fail v9999999999.0.0
 expect_fail 1.2.3
 expect_fail V1.2.3
 

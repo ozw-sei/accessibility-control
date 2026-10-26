@@ -301,7 +301,7 @@ Obtainium は GitHub Releases を追う。タグを push すると、署名済�
 | タグ | GitHub Release |
 |------|----------------|
 | `vX.Y.Z`（例: `v1.2.3`） | 通常の Release |
-| `vX.Y.Z-beta.N`（例: `v1.2.3-beta.1`、N は 0〜98） | prerelease |
+| `vX.Y.Z-beta.N`（例: `v1.2.3-beta.1`、N は 1〜98） | prerelease |
 
 ```bash
 git tag v1.2.3
@@ -310,7 +310,7 @@ git push origin v1.2.3
 
 タグのコミットはデフォルトブランチの履歴に含まれている必要がある。含まれていないとワークフローは失敗する。
 
-versionName はタグから先頭の `v` を除いた文字列（`1.2.3`、beta なら `1.2.3-beta.1`）。versionCode は `X*1000000 + Y*10000 + Z*100 + 99` で、beta のときは 99 の代わりに N。CI が `-PversionName` と `-PversionCode` を渡す。手元のビルドは versionName `1.0.0`、versionCode `1` のまま。
+versionName はタグから先頭の `v` を除いた文字列（`1.2.3`、beta なら `1.2.3-beta.1`）。versionCode は `X*1000000 + Y*10000 + Z*100 + 99` で、beta のときは 99 の代わりに N。X は 0〜2099、Y と Z は 0〜99、N は 1〜98。versionCode は 1〜2100000000（`v0.0.0-beta.0` は 0 になるので拒否する）。CI が `-PversionName` と `-PversionCode` を渡す。手元のビルドは versionName `1.0.0`、versionCode `1` のまま。
 
 添付は次の2ファイルだけ。リリースノートは `gh release create --generate-notes` で作る。
 

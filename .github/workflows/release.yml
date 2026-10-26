@@ -36,9 +36,16 @@ jobs:
       - name: Require the tag commit on the default branch
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # checkout は persist-credentials: false なので、fetch のときだけ Basic 認証する。
+          # git config には残さない。
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" \
+            fetch --no-tags origin \
+            "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          unset auth_header
           if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/${DEFAULT_BRANCH}"; then
             echo "::error::タグ ${GITHUB_REF_NAME} のコミット ${GITHUB_SHA} は ${DEFAULT_BRANCH} の履歴に含まれていません。リリースタグはデフォルトブランチに含まれるコミットへ打ってください。"
             exit 1
@@ -216,6 +223,10 @@ jobs:
     permissions:
       contents: write
       actions: read
+    env:
+      # このジョブは checkout しない。gh は GH_REPO がないとリポジトリを決められない。
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download release files
         # actions/download-artifact@v4.3.0
@@ -252,12 +263,31 @@ jobs:
 
       - name: Create GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.verify.outputs.tag }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
           set -euo pipefail
-          args=(--title "$TAG" --generate-notes)
+          # ビルド後にタグが動かされていたら、別コミットの Release を作らない。
+          if ! object="$(gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" --jq '.object.type + " " + .object.sha')"; then
+            echo "::error::タグ ${TAG} がリモートにありません。ビルドしたコミットは ${GITHUB_SHA} です。"
+            exit 1
+          fi
+          tag_type="${object%% *}"
+          tag_sha="${object##* }"
+          for _ in 1 2 3 4 5; do
+            [[ "$tag_type" == "tag" ]] || break
+            if ! object="$(gh api "repos/${GH_REPO}/git/tags/${tag_sha}" --jq '.object.type + " " + .object.sha')"; then
+              echo "::error::タグ ${TAG} の指すコミットを解決できませんでした。"
+              exit 1
+            fi
+            tag_type="${object%% *}"
+            tag_sha="${object##* }"
+          done
+          if [[ "$tag_type" != "commit" || "$tag_sha" != "$GITHUB_SHA" ]]; then
+            echo "::error::タグ ${TAG} は ${tag_sha} (${tag_type}) を指しています。ビルドしたコミットは ${GITHUB_SHA} です。"
+            exit 1
+          fi
+          args=(--verify-tag --title "$TAG" --generate-notes)
           if [[ "$PRERELEASE" == "true" ]]; then
             args+=(--prerelease)
           fi
