@@ -292,36 +292,57 @@ adb shell dpm remove-active-admin com.example.accessibilityguard/.GuardAdminRece
 
 ---
 
+## リリース
+
+Obtainium は GitHub Releases を追う。タグを push すると、署名済みの release APK が1つと、その `.sha256` が Release に付く。
+
+このアプリは本番アプリ。
+
+| タグ | GitHub Release |
+|------|----------------|
+| `vX.Y.Z`（例: `v1.2.3`） | 通常の Release |
+| `vX.Y.Z-beta.N`（例: `v1.2.3-beta.1`、N は 1〜98） | prerelease |
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+タグのコミットはデフォルトブランチの履歴に含まれている必要がある。含まれていないとワークフローは失敗する。
+
+versionName はタグから先頭の `v` を除いた文字列（`1.2.3`、beta なら `1.2.3-beta.1`）。versionCode は `X*1000000 + Y*10000 + Z*100 + 99` で、beta のときは 99 の代わりに N。X は 0〜2099、Y と Z は 0〜99、N は 1〜98。versionCode は 1〜2100000000（`v0.0.0-beta.0` は 0 になるので拒否する）。CI が `-PversionName` と `-PversionCode` を渡す。手元のビルドは versionName `1.0.0`、versionCode `1` のまま。
+
+添付は次の2ファイルだけ。リリースノートは `gh release create --generate-notes` で作る。
+
+- `accessibility-control-v1.2.3.apk`
+- `accessibility-control-v1.2.3.apk.sha256`
+
+署名鍵はコミット済みの `app/debug.keystore` のまま。release ビルド種別もこの鍵で署名する。このアプリは Device Owner として端末に入っているので、鍵を別の keystore に差し替えると署名が一致せず上書きインストールできず、入れ直すには Device Owner の解除が必要になる。そのため `ANDROID_KEYSTORE_BASE64` などの secrets には切り替えず、この鍵を使い続ける。
+
+公開 APK は release ビルド種別で、`ALLOW_DEBUG_FEATURES` は false。Device Owner の解除ボタンは出ない。
+
 ## CI/CD (GitHub Actions)
 
 ### パイプライン構成
 
 ```
-push/PR → [Unit Tests] → [Lint] → [Build APK] → Artifacts
-                                       ↓
-                              tag v* → [GitHub Release]
+push/PR → [Unit Tests] → [Lint] → [Build APK] → Actions artifacts
+tag v*  → [タグ検証] → [Unit Tests] [Lint] → [署名済み release APK] → GitHub Release
 ```
 
 | ジョブ | 内容 | 成果物 |
 |-------|------|--------|
+| `version-script` | タグから versionName / versionCode への変換をチェック | なし |
 | `unit-test` | `./gradlew testDebugUnitTest` | HTML テストレポート |
 | `lint` | `./gradlew lintDebug` | Lint レポート |
-| `build` | debug + release APK 生成 | `AccessibilityGuard-{ver}-debug-{sha}.apk` |
-| `release` | タグ push 時に GitHub Release 作成 | APK 添付 |
+| `build` | debug APK と、`debug.keystore` で署名した release APK | Actions artifact |
+| `release`（`release.yml`、タグのみ） | `accessibility-control-<tag>.apk` と `.sha256` | GitHub Release |
 
 ### APK のダウンロード
 
-1. GitHub リポジトリの **Actions** タブを開く
-2. 最新の成功したワークフローを選択
-3. **Artifacts** セクションから `apk-debug-{sha}` をダウンロード
+配布用 APK は GitHub の **Releases** にある。Obtainium もここを登録する。
 
-### リリースの作成
-
-```bash
-# タグを付けて push すると自動で GitHub Release が作成される
-git tag v1.0.0
-git push origin v1.0.0
-```
+PR やブランチのビルドは Actions の Artifacts（`apk-debug-{sha}` / `apk-release-{sha}`）に出る。タグから計算した versionName / versionCode が付くのは Releases の APK だけ。
 
 ### 初回 Git リポジトリセットアップ
 
@@ -381,8 +402,13 @@ fun isAllowed(): Boolean {
 
 ```
 accessibility-guard/
-├── .github/workflows/
-│   └── build.yml                    # GitHub Actions CI/CD
+├── .github/
+│   ├── scripts/
+│   │   ├── release-version.sh       # タグ → versionName / versionCode
+│   │   └── release-version.test.sh
+│   └── workflows/
+│       ├── build.yml                # PR / push のテストと APK
+│       └── release.yml              # タグで GitHub Release
 ├── .gitignore
 ├── setup.sh                         # 初回セットアップスクリプト
 ├── build.gradle.kts                 # プロジェクトレベル

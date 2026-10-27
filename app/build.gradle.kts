@@ -3,11 +3,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// タグの Release ワークフローが -PversionName / -PversionCode を渡す。
+// 手元のビルドは既定値のまま（リリースのたびにこのファイルは編集しない）。
+val configuredVersionName: String =
+    providers.gradleProperty("versionName").orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "1.0.0"
+val configuredVersionCode: Int =
+    providers.gradleProperty("versionCode").orNull?.trim()?.takeIf { it.isNotEmpty() }?.toInt()
+        ?: 1
+
 android {
     namespace = "com.example.accessibilityguard"
     compileSdk = 34
 
-    // ローカル/CI で同じ署名を使うための debug keystore 設定
+    // ローカル / CI / release で同じ debug.keystore を使う。
+    // Device Owner のまま更新するため、この鍵は変えない。
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -21,8 +30,8 @@ android {
         applicationId = "com.example.accessibilityguard"
         minSdk = 28
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = configuredVersionCode
+        versionName = configuredVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -34,6 +43,9 @@ android {
             buildConfigField("boolean", "ALLOW_DEBUG_FEATURES", if (isCI) "false" else "true")
         }
         release {
+            // release もコミット済み debug.keystore で署名する。
+            // 鍵を差し替えると署名不一致で上書きできず、Device Owner の解除が必要になる。
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             buildConfigField("boolean", "ALLOW_DEBUG_FEATURES", "false")
             proguardFiles(
